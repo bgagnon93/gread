@@ -1,0 +1,21 @@
+{
+  "name": "gread",
+  "version": "0.0.1",
+  "description": "RSVP (spreeder) speed-reader — engine + standalone harness (Milestone 1)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:ext": "node scripts/build-extension.mjs",
+    "watch:ext": "node scripts/build-extension.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0",
+    "vitest": "^1.6.0"
+  }
+}

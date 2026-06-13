@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gread — RSVP harness</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #15171c;
+        color: #e6e6e6;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        padding: 1.5rem;
+        gap: 1.25rem;
+      }
+      h1 { font-size: 1rem; font-weight: 600; opacity: 0.7; margin: 0; }
+      .note { font-size: 0.8rem; opacity: 0.5; margin: 0; }
+
+      /* The reader display ---------------------------------------------- */
+      .reader {
+        background: #0d0f13;
+        border: 1px solid #262a31;
+        border-radius: 12px;
+        padding: 2.5rem 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.25rem;
+      }
+      /*
+       * The word is laid out in three parts so the pivot (ORP) letter is
+       * always pinned to the same column: [left | pivot | right]. The left and
+       * right columns are equal-width (1fr) and the pivot is auto-width and
+       * centered, so the pivot character sits at exactly 50% for every word —
+       * the eye never has to move.
+       */
+      .word {
+        font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+        font-size: 3rem;
+        line-height: 1;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        width: 100%;
+        max-width: 520px;
+        position: relative;
+      }
+      .word .left { text-align: right; white-space: pre; }
+      .word .pivot { text-align: center; white-space: pre; color: #ff5252; }
+      .word .right { text-align: left; white-space: pre; }
+      /* The pivot guide: a tick above and below the fixed ORP column (50%). */
+      .word::before,
+      .word::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        width: 2px;
+        height: 0.55rem;
+        background: #3a3f48;
+        transform: translateX(-50%);
+      }
+      .word::before { top: -1rem; }
+      .word::after { bottom: -1rem; }
+
+      .progress {
+        width: 100%;
+        max-width: 520px;
+      }
+      .progress input { width: 100%; }
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        opacity: 0.6;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Controls -------------------------------------------------------- */
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem 1.5rem;
+        align-items: center;
+        justify-content: center;
+      }
+      .control { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+      button {
+        background: #2a2f38;
+        color: #e6e6e6;
+        border: 1px solid #3a3f48;
+        border-radius: 8px;
+        padding: 0.5rem 0.9rem;
+        font-size: 0.9rem;
+        cursor: pointer;
+      }
+      button:hover { background: #343a44; }
+      button.primary { background: #2f6feb; border-color: #2f6feb; min-width: 5rem; }
+      input[type="range"] { accent-color: #2f6feb; }
+      label { font-variant-numeric: tabular-nums; }
+
+      textarea {
+        width: 100%;
+        min-height: 9rem;
+        background: #0d0f13;
+        color: #cfd3da;
+        border: 1px solid #262a31;
+        border-radius: 10px;
+        padding: 0.85rem;
+        font-family: inherit;
+        font-size: 0.9rem;
+        resize: vertical;
+      }
+      kbd {
+        background: #2a2f38; border: 1px solid #3a3f48; border-radius: 4px;
+        padding: 0 0.3rem; font-size: 0.7rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>gread — RSVP engine harness <span class="note">(Milestone 1, throwaway)</span></h1>
+
+    <section class="reader">
+      <div class="word" id="word">&nbsp;</div>
+      <div class="progress">
+        <input type="range" id="scrub" min="0" max="0" value="0" />
+        <div class="meta">
+          <span id="position">0 / 0</span>
+          <span id="remaining">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="controls">
+      <button id="restart" title="Jump to start">⏮</button>
+      <button id="back" title="Word back (←)">◀</button>
+      <button class="primary" id="playpause">Play</button>
+      <button id="fwd" title="Word forward (→)">▶</button>
+
+      <div class="control">
+        <label>WPM <span id="wpmVal">300</span></label>
+        <input type="range" id="wpm" min="100" max="1000" step="10" value="300" />
+      </div>
+      <div class="control">
+        <label>Chunk <span id="chunkVal">1</span></label>
+        <input type="range" id="chunk" min="1" max="3" step="1" value="1" />
+      </div>
+    </section>
+
+    <p class="note">
+      <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> step ·
+      edit the text below to reload.
+    </p>
+
+    <textarea id="input">
+The quick brown fox jumps over the lazy dog. Speed reading with RSVP presents one word at a time at a fixed point, so your eyes never move. The reddened pivot letter marks the optimal recognition point — align your gaze to it and the words flow past without effort. Adjust the words-per-minute and chunk size, then press play to feel the difference.</textarea>
+
+    <script type="module" src="/src/harness/main.ts"></script>
+  </body>
+</html>
