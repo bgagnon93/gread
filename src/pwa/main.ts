@@ -8,24 +8,29 @@
 import { RsvpEngine } from '../engine/rsvp.js';
 import type { ReaderState, Token } from '../engine/types.js';
 import { loadSettings, saveSettings, THEMES, type PwaSettings, type Theme } from './settings.js';
-import { fetchEbook, loadAbsConfig, parseItemId, saveAbsConfig } from './abs.js';
+import { fetchEbook, getBooks, isInProgress, loadAbsConfig, saveAbsConfig, type AbsBook } from './abs.js';
 import { parseEpub } from './epub.js';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
 // Screens
 const inputScreen = $('input-screen');
+const libraryScreen = $('library-screen');
 const chapterScreen = $('chapter-screen');
 const readerScreen = $('reader-screen');
 
 // Input screen
 const input = $<HTMLTextAreaElement>('input');
 const readBtn = $<HTMLButtonElement>('read');
-const absUrl = $<HTMLInputElement>('abs-url');
 const absKey = $<HTMLInputElement>('abs-key');
-const absItem = $<HTMLInputElement>('abs-item');
-const absOpen = $<HTMLButtonElement>('abs-open');
+const absConnect = $<HTMLButtonElement>('abs-connect');
 const absStatus = $('abs-status');
+
+// Library screen
+const libraryBack = $<HTMLButtonElement>('library-back');
+const libraryTitle = $('library-title');
+const libraryStatus = $('library-status');
+const bookList = $<HTMLUListElement>('book-list');
 
 // Chapter screen
 const chapterBack = $<HTMLButtonElement>('chapter-back');
@@ -90,7 +95,12 @@ function syncControls(s: ReaderState): void {
 
 // ---- screen switching -----------------------------------------------------
 
-const screens = { input: inputScreen, chapters: chapterScreen, reader: readerScreen };
+const screens = {
+  input: inputScreen,
+  library: libraryScreen,
+  chapters: chapterScreen,
+  reader: readerScreen,
+};
 type ScreenName = keyof typeof screens;
 
 // Where the reader's "‹ Text" button returns to (depends how we got here).
@@ -122,43 +132,103 @@ backBtn.addEventListener('click', () => {
 // ---- Audiobookshelf flow --------------------------------------------------
 
 const absCfg = loadAbsConfig();
-absUrl.value = absCfg.baseUrl;
 absKey.value = absCfg.apiKey;
 
-absOpen.addEventListener('click', () => void openFromAbs());
+absConnect.addEventListener('click', () => void connectAbs());
+libraryBack.addEventListener('click', () => setScreen('input'));
 
-async function openFromAbs(): Promise<void> {
-  const cfg = { baseUrl: absUrl.value.trim(), apiKey: absKey.value.trim() };
-  saveAbsConfig(cfg);
-
-  const itemId = parseItemId(absItem.value);
-  if (!itemId) {
-    setStatus('Enter a valid item URL or ID.', true);
+async function connectAbs(): Promise<void> {
+  absCfg.apiKey = absKey.value.trim();
+  saveAbsConfig(absCfg);
+  if (!absCfg.apiKey) {
+    setStatus(absStatus, 'Enter your API key first.', true);
     return;
   }
-
-  setStatus('Fetching ebook…', false);
-  absOpen.disabled = true;
+  setStatus(absStatus, 'Loading library…', false);
+  absConnect.disabled = true;
   try {
-    const bytes = await fetchEbook(cfg, itemId);
-    setStatus('Parsing…', false);
-    const book = await parseEpub(bytes);
-    if (book.chapters.length === 0) {
-      setStatus('No readable text found in this ebook.', true);
-      return;
-    }
-    showChapters(book.title, book.chapters);
-    setStatus('', false);
+    const { libraryName, books } = await getBooks(absCfg);
+    renderLibrary(libraryName, books);
+    setStatus(absStatus, '', false);
+    setScreen('library');
   } catch (e) {
-    setStatus((e as Error).message, true);
+    setStatus(absStatus, (e as Error).message, true);
   } finally {
-    absOpen.disabled = false;
+    absConnect.disabled = false;
   }
 }
 
-function setStatus(msg: string, isError: boolean): void {
-  absStatus.textContent = msg;
-  absStatus.classList.toggle('error', isError);
+async function openBook(book: AbsBook): Promise<void> {
+  setStatus(libraryStatus, `Opening “${book.title}”…`, false);
+  try {
+    const bytes = await fetchEbook(absCfg, book.id);
+    const parsed = await parseEpub(bytes);
+    if (parsed.chapters.length === 0) {
+      setStatus(libraryStatus, 'No readable text found in this ebook.', true);
+      return;
+    }
+    setStatus(libraryStatus, '', false);
+    showChapters(parsed.title || book.title, parsed.chapters);
+  } catch (e) {
+    setStatus(libraryStatus, (e as Error).message, true);
+  }
+}
+
+// ---- library rendering ----------------------------------------------------
+
+function renderLibrary(libraryName: string, books: AbsBook[]): void {
+  libraryTitle.textContent = libraryName;
+  const inProgress = books.filter(isInProgress);
+  const rest = books.filter((b) => !isInProgress(b));
+
+  const frag = document.createDocumentFragment();
+  if (inProgress.length > 0) {
+    frag.append(sectionLabel('Continue Reading'), ...inProgress.map(bookItem));
+    if (rest.length > 0) frag.append(sectionLabel('All Books'));
+  }
+  frag.append(...rest.map(bookItem));
+  bookList.replaceChildren(frag);
+}
+
+function bookItem(book: AbsBook): HTMLLIElement {
+  const li = document.createElement('li');
+  const btn = document.createElement('button');
+
+  const col = document.createElement('div');
+  col.className = 'col';
+  const ttl = document.createElement('span');
+  ttl.className = 'ttl';
+  ttl.textContent = book.title;
+  col.appendChild(ttl);
+  if (book.author) {
+    const author = document.createElement('span');
+    author.className = 'author';
+    author.textContent = book.author;
+    col.appendChild(author);
+  }
+  btn.appendChild(col);
+
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  if (isInProgress(book)) badge.textContent = `${Math.round((book.progress ?? 0) * 100)}%`;
+  else if (book.isFinished) badge.textContent = '✓';
+  btn.appendChild(badge);
+
+  btn.addEventListener('click', () => void openBook(book));
+  li.appendChild(btn);
+  return li;
+}
+
+function sectionLabel(text: string): HTMLLIElement {
+  const li = document.createElement('li');
+  li.className = 'section-label';
+  li.textContent = text;
+  return li;
+}
+
+function setStatus(el: HTMLElement, msg: string, isError: boolean): void {
+  el.textContent = msg;
+  el.classList.toggle('error', isError);
 }
 
 // ---- chapter picker -------------------------------------------------------
@@ -183,7 +253,7 @@ function showChapters(title: string, chapters: { label: string; text: string; wo
   setScreen('chapters');
 }
 
-chapterBack.addEventListener('click', () => setScreen('input'));
+chapterBack.addEventListener('click', () => setScreen('library'));
 
 // ---- reader controls ------------------------------------------------------
 

@@ -63,9 +63,9 @@
         padding: 1rem; font-size: 1.05rem; font-weight: 600; cursor: pointer; width: 100%;
       }
       .primary:disabled { opacity: 0.4; }
-      .abs { font-size: 0.9rem; }
-      .abs summary { color: var(--muted); cursor: pointer; padding: 0.4rem 0; }
-      .abs > *:not(summary) { margin-top: 0.6rem; }
+      .abs { font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+      .abs-label { color: var(--muted); }
+      .lib-title { color: var(--muted); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .text {
         width: 100%; background: var(--panel); color: var(--fg);
         border: 1px solid var(--panel-edge); border-radius: 10px;
@@ -85,6 +85,11 @@
         display: flex; justify-content: space-between; gap: 1rem;
       }
       .chapter-list .count { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+      .chapter-list .col { display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; min-width: 0; }
+      .chapter-list .col .ttl { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+      .chapter-list .col .author { color: var(--muted); font-size: 0.78rem; }
+      .chapter-list .badge { color: var(--accent); font-size: 0.8rem; white-space: nowrap; align-self: center; }
+      .section-label { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; margin: 0.75rem 0.25rem 0.35rem; list-style: none; }
 
       /* ---- reader screen ---- */
       #reader-screen { padding: 1rem; }
@@ -143,17 +148,23 @@
       <textarea id="input" placeholder="Paste or type text to speed-read…"></textarea>
       <button id="read" class="primary" disabled>Read</button>
 
-      <details id="abs" class="abs">
-        <summary>Open from Audiobookshelf</summary>
-        <input id="abs-url" class="text" type="url" autocomplete="off"
-               placeholder="Server URL (https://…/audiobookshelf)" />
+      <div class="abs">
+        <div class="abs-label">Audiobookshelf</div>
         <input id="abs-key" class="text" type="password" autocomplete="off"
                placeholder="API key" />
-        <input id="abs-item" class="text" type="text" autocomplete="off"
-               placeholder="Item URL or ID" />
-        <button id="abs-open" class="primary">Open</button>
+        <button id="abs-connect" class="primary">Open my library</button>
         <div id="abs-status" class="status"></div>
-      </details>
+      </div>
+    </section>
+
+    <!-- Library screen -->
+    <section id="library-screen" class="screen">
+      <div class="topbar">
+        <button id="library-back" class="iconbtn">‹ Text</button>
+        <span id="library-title" class="lib-title"></span>
+      </div>
+      <div id="library-status" class="status"></div>
+      <ul id="book-list" class="chapter-list"></ul>
     </section>
 
     <!-- Chapter picker screen -->
