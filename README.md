@@ -24,7 +24,19 @@ npm install
 npm run dev        # Milestone 1 harness page (Vite prints the URL)
 npm test           # engine unit tests
 npm run build:ext  # bundle the extension into dist/  (watch:ext to rebuild)
+npm run dev:pwa    # PWA dev server (mobile/desktop reader)
+npm run build:pwa  # build the installable PWA into dist-pwa/
 ```
+
+## PWA (mobile + desktop reader)
+
+A second front-end that reuses the same engine — a standalone, installable
+speed-reader for any device. See [docs/PWA-DESIGN.md](docs/PWA-DESIGN.md) for the
+plan (Audiobookshelf-library integration is the headline upcoming feature).
+
+**Milestone 1 (done):** paste text → RSVP reader, mobile-first, installable
+(manifest + service worker), with WPM/chunk/theme persisted to localStorage.
+Run it with `npm run dev:pwa`.
 
 ## Load the extension (Chrome/Edge)
 

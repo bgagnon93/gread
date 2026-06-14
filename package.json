@@ -8,14 +8,20 @@
     "build": "tsc --noEmit && vite build",
     "build:ext": "node scripts/build-extension.mjs",
     "watch:ext": "node scripts/build-extension.mjs --watch",
+    "dev:pwa": "vite --config vite.pwa.config.ts",
+    "build:pwa": "vite build --config vite.pwa.config.ts",
     "test": "vitest run",
     "test:watch": "vitest"
+  },
+  "dependencies": {
+    "epubjs": "^0.3.93"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
     "esbuild": "^0.21.0",
     "typescript": "^5.4.0",
     "vite": "^5.2.0",
+    "vite-plugin-pwa": "^0.20.5",
     "vitest": "^1.6.0"
   }
 }
