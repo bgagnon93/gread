@@ -1,11 +1,15 @@
 /**
- * Epub parsing for RSVP. We use epub.js only to crack open the container and
- * pull out *raw text* per spine section — we never render it visually (no
- * iframe), since the engine just needs a string. Chapter labels come from the
- * table of contents where they can be matched to a spine href.
+ * Epub parsing for RSVP. We only need *raw text* per spine section — the engine
+ * just consumes a string. So instead of letting epub.js build a full DOM for
+ * every section (a `DOMParser` document + hooks, repeated N times — the slow
+ * part on long books), we pull each section's raw XHTML straight from the zip
+ * (`archive.getText`) and strip the markup ourselves. Sections are unzipped in
+ * parallel. Chapter labels come from the table of contents where they can be
+ * matched to a spine href.
  *
- * NOTE: epub.js internals vary across versions and real-world epubs are messy,
- * so this extraction is defensive and may need tuning against actual files.
+ * The text strip is tuned for well-formed XHTML (which epubs are): it drops
+ * head/script/style, inserts spaces at block boundaries so words don't fuse,
+ * removes remaining tags, and decodes common entities. Plenty for RSVP.
  */
 import ePub from 'epubjs';
 
@@ -43,22 +47,15 @@ export async function parseEpub(data: ArrayBuffer): Promise<ParsedBook> {
   walk(book.navigation?.toc ?? []);
 
   const spineItems: AnyBook[] = book.spine?.spineItems ?? [];
+
+  // Unzip all sections concurrently, then extract text in spine order.
+  const raws = await Promise.all(spineItems.map((item) => rawSection(book, item)));
+
   const chapters: Chapter[] = [];
-
-  for (const item of spineItems) {
-    let text = '';
-    try {
-      await item.load(book.load.bind(book));
-      const doc: Document | undefined = item.document;
-      text = (doc?.body?.textContent ?? '').replace(/[ \t]+/g, ' ').trim();
-      item.unload();
-    } catch {
-      // Unreadable/encrypted section — skip it.
-      continue;
-    }
-    if (!text) continue;
-
-    const href = String(item.href ?? '').split('#')[0];
+  for (let i = 0; i < spineItems.length; i++) {
+    const text = htmlToText(raws[i]);
+    if (!text) continue; // skip empty sections (cover, blank pages, etc.)
+    const href = String(spineItems[i].href ?? '').split('#')[0];
     const label = labels.get(href) || `Section ${chapters.length + 1}`;
     chapters.push({ label, text, wordCount: countWords(text) });
   }
@@ -70,6 +67,59 @@ export async function parseEpub(data: ArrayBuffer): Promise<ParsedBook> {
   }
 
   return { title, chapters };
+}
+
+/** Raw XHTML for a spine section, straight from the zip (no DOM build). */
+async function rawSection(book: AnyBook, item: AnyBook): Promise<string> {
+  // archive.getText expects a zip path with a leading slash; spine items expose
+  // the path under a few names depending on how the book was opened.
+  for (const candidate of [item.url, item.canonical, item.href]) {
+    if (!candidate) continue;
+    const url = String(candidate).startsWith('/') ? candidate : `/${candidate}`;
+    try {
+      const text = await book.archive?.getText(url);
+      if (text) return text;
+    } catch {
+      // try the next candidate path
+    }
+  }
+  return '';
+}
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  mdash: '—', ndash: '–', hellip: '…', rsquo: '’', lsquo: '‘',
+  rdquo: '”', ldquo: '“', laquo: '«', raquo: '»', copy: '©', deg: '°',
+};
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => fromCodePoint(parseInt(d, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => NAMED_ENTITIES[name] ?? m);
+}
+
+function fromCodePoint(n: number): string {
+  try {
+    return String.fromCodePoint(n);
+  } catch {
+    return '';
+  }
+}
+
+/** Strip XHTML to readable text, keeping word boundaries intact. */
+function htmlToText(html: string): string {
+  if (!html) return '';
+  const stripped = html
+    .replace(/<\?[\s\S]*?\?>/g, ' ') // xml decls / processing instructions
+    .replace(/<!--[\s\S]*?-->/g, ' ') // comments
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ' ')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    // Block-level tags become spaces so adjacent words don't fuse together.
+    .replace(/<\/?(?:br|p|div|li|h[1-6]|section|article|tr|td|blockquote|figure|figcaption)[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, ''); // remaining inline tags: drop without a space
+  return decodeEntities(stripped).replace(/\s+/g, ' ').trim();
 }
 
 function countWords(text: string): number {
