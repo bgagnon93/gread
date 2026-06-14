@@ -99,16 +99,34 @@
 
       /* ---- reader screen ---- */
       #reader-screen { padding: 1rem 1rem 1.5rem; }
-      .topbar { display: flex; justify-content: space-between; align-items: center; }
+      .topbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
       .iconbtn {
         background: var(--panel); color: var(--fg); border: 1px solid var(--panel-edge);
-        border-radius: 10px; padding: 0.5rem 0.8rem; font-size: 0.95rem; cursor: pointer;
+        border-radius: 10px; padding: 0.5rem 0.8rem; font-size: 0.95rem; cursor: pointer; flex: none;
       }
+      .now { flex: 1; min-width: 0; text-align: center; }
+      .now.hidden { visibility: hidden; }
+      .now-title { display: block; font-size: 0.9rem; font-weight: 600;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .now-sub { display: block; font-size: 0.72rem; color: var(--muted);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .stage {
+        position: relative;
         flex: 1; display: flex; flex-direction: column; align-items: center;
         justify-content: center; gap: 2rem; cursor: pointer;
         overflow: hidden; min-height: 0; width: 100%;
       }
+      .transition {
+        position: absolute; inset: 0; display: none; flex-direction: column;
+        align-items: center; justify-content: center; gap: 1.25rem;
+        background: var(--bg); text-align: center; padding: 1.5rem;
+      }
+      .transition.active { display: flex; }
+      .transition .done { color: var(--muted); font-size: 0.8rem;
+        text-transform: uppercase; letter-spacing: 0.08em; }
+      .transition .next-label { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.3rem; }
+      .transition .next-title { font-size: 1.35rem; font-weight: 600; }
+      .transition .continue { width: auto; padding: 0.7rem 1.5rem; }
       .word {
         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         font-size: clamp(2.25rem, 11vw, 4rem); line-height: 1;
@@ -193,12 +211,24 @@
     <!-- Reader screen -->
     <section id="reader-screen" class="screen">
       <div class="topbar">
-        <button id="back" class="iconbtn">‹ Text</button>
+        <button id="back" class="iconbtn">‹</button>
+        <div class="now" id="now-reading">
+          <span class="now-title" id="now-title"></span>
+          <span class="now-sub" id="now-sub"></span>
+        </div>
         <select id="theme" aria-label="Theme"></select>
       </div>
 
       <div class="stage" id="stage">
         <div class="word" id="word"></div>
+        <div class="transition" id="transition">
+          <span class="done" id="transition-done">✓ Chapter complete</span>
+          <div class="up-next" id="up-next">
+            <div class="next-label">Up next</div>
+            <div class="next-title" id="next-title"></div>
+          </div>
+          <button id="continue" class="primary continue">Continue ▶</button>
+        </div>
       </div>
 
       <div class="panel">

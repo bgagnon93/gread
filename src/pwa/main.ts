@@ -9,7 +9,7 @@ import { RsvpEngine } from '../engine/rsvp.js';
 import type { ReaderState, Token } from '../engine/types.js';
 import { loadSettings, saveSettings, THEMES, type PwaSettings, type Theme } from './settings.js';
 import { fetchEbook, getBooks, isInProgress, loadAbsConfig, saveAbsConfig, type AbsBook } from './abs.js';
-import { parseEpub } from './epub.js';
+import { parseEpub, type Chapter } from './epub.js';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -40,8 +40,16 @@ const chapterList = $<HTMLUListElement>('chapter-list');
 // Reader screen
 const backBtn = $<HTMLButtonElement>('back');
 const themeSel = $<HTMLSelectElement>('theme');
+const nowReading = $('now-reading');
+const nowTitle = $('now-title');
+const nowSub = $('now-sub');
 const stage = $('stage');
 const wordEl = $('word');
+const transition = $('transition');
+const transitionDone = $('transition-done');
+const upNext = $('up-next');
+const nextTitle = $('next-title');
+const continueBtn = $<HTMLButtonElement>('continue');
 const scrub = $<HTMLInputElement>('scrub');
 const positionEl = $('position');
 const etaEl = $('eta');
@@ -68,7 +76,12 @@ engine.on('tick', (s, t) => {
   etaEl.textContent = `${formatTime(remainingSeconds(s))} left`;
 });
 engine.on('state', (s) => syncControls(s));
-engine.on('end', () => (playpause.textContent = '▶'));
+engine.on('end', () => {
+  playpause.textContent = '▶';
+  if (!session) return;
+  if (session.index < session.chapters.length - 1) showChapterTransition();
+  else showEndOfBook();
+});
 
 function renderWord(token: Token | null): void {
   if (!token) {
@@ -103,7 +116,7 @@ const screens = {
 };
 type ScreenName = keyof typeof screens;
 
-// Where the reader's "‹ Text" button returns to (depends how we got here).
+// Where the reader's back button returns to (depends how we got here).
 let readerReturn: ScreenName = 'input';
 
 function setScreen(name: ScreenName): void {
@@ -111,21 +124,110 @@ function setScreen(name: ScreenName): void {
   screens[name].classList.add('active');
 }
 
-function showReader(text: string, returnTo: ScreenName): void {
-  readerReturn = returnTo;
-  backBtn.textContent = returnTo === 'chapters' ? '‹ Chapters' : '‹ Text';
+// ---- reading session ------------------------------------------------------
+// A book opened from the library carries its whole chapter list so the reader
+// can show "now reading" context and auto-advance between chapters. Pasted text
+// has no session (session = null) — no header, no auto-advance.
+
+interface Session {
+  bookTitle: string;
+  author: string;
+  chapters: Chapter[];
+  index: number;
+}
+let session: Session | null = null;
+
+// Seconds the transition card lingers before auto-starting the next chapter.
+const AUTO_ADVANCE_MS = 4000;
+let advanceTimer: number | undefined;
+
+function clearAdvance(): void {
+  if (advanceTimer !== undefined) {
+    clearTimeout(advanceTimer);
+    advanceTimer = undefined;
+  }
+}
+
+function hideTransition(): void {
+  clearAdvance();
+  transition.classList.remove('active');
+}
+
+function updateNowReading(): void {
+  if (!session) {
+    nowReading.classList.add('hidden');
+    return;
+  }
+  nowReading.classList.remove('hidden');
+  nowTitle.textContent = session.bookTitle;
+  const ch = session.chapters[session.index];
+  nowSub.textContent = [session.author, ch?.label].filter(Boolean).join(' · ');
+}
+
+/** Open a chapter by index in the reader, optionally starting playback. */
+function playChapter(index: number, autoPlay: boolean): void {
+  if (!session) return;
+  session.index = index;
+  hideTransition();
+  updateNowReading();
+  readerReturn = 'chapters';
+  engine.load(session.chapters[index].text);
+  setScreen('reader');
+  if (autoPlay) engine.play();
+}
+
+/** Show pasted text in the reader (no book/chapter context). */
+function showText(text: string): void {
+  session = null;
+  hideTransition();
+  updateNowReading();
+  readerReturn = 'input';
   engine.load(text);
   setScreen('reader');
 }
+
+/** Chapter finished and another follows: announce it and auto-advance. */
+function showChapterTransition(): void {
+  if (!session) return;
+  const next = session.chapters[session.index + 1];
+  transitionDone.textContent = '✓ Chapter complete';
+  nextTitle.textContent = next.label;
+  upNext.style.display = '';
+  continueBtn.style.display = '';
+  transition.classList.add('active');
+  clearAdvance();
+  advanceTimer = window.setTimeout(continueNow, AUTO_ADVANCE_MS);
+}
+
+/** Start the next chapter now (timer fired or user tapped Continue). */
+function continueNow(): void {
+  if (!session) return;
+  playChapter(session.index + 1, true);
+}
+
+/** Last chapter finished: a terminal card, no auto-advance. */
+function showEndOfBook(): void {
+  clearAdvance();
+  transitionDone.textContent = '✓ End of book';
+  upNext.style.display = 'none';
+  continueBtn.style.display = 'none';
+  transition.classList.add('active');
+}
+
+continueBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  continueNow();
+});
 
 // ---- input screen ---------------------------------------------------------
 
 input.addEventListener('input', () => {
   readBtn.disabled = input.value.trim().length === 0;
 });
-readBtn.addEventListener('click', () => showReader(input.value, 'input'));
+readBtn.addEventListener('click', () => showText(input.value));
 backBtn.addEventListener('click', () => {
   engine.pause();
+  hideTransition();
   setScreen(readerReturn);
 });
 
@@ -168,7 +270,7 @@ async function openBook(book: AbsBook): Promise<void> {
       return;
     }
     setStatus(libraryStatus, '', false);
-    showChapters(parsed.title || book.title, parsed.chapters);
+    showChapters(parsed.title || book.title, book.author, parsed.chapters);
   } catch (e) {
     setStatus(libraryStatus, (e as Error).message, true);
   }
@@ -233,10 +335,11 @@ function setStatus(el: HTMLElement, msg: string, isError: boolean): void {
 
 // ---- chapter picker -------------------------------------------------------
 
-function showChapters(title: string, chapters: { label: string; text: string; wordCount: number }[]): void {
+function showChapters(title: string, author: string, chapters: Chapter[]): void {
+  session = { bookTitle: title, author, chapters, index: 0 };
   bookTitle.textContent = title;
   chapterList.replaceChildren(
-    ...chapters.map((ch) => {
+    ...chapters.map((ch, i) => {
       const li = document.createElement('li');
       const btn = document.createElement('button');
       const label = document.createElement('span');
@@ -245,7 +348,7 @@ function showChapters(title: string, chapters: { label: string; text: string; wo
       count.className = 'count';
       count.textContent = `${ch.wordCount.toLocaleString()} words`;
       btn.append(label, count);
-      btn.addEventListener('click', () => showReader(ch.text, 'chapters'));
+      btn.addEventListener('click', () => playChapter(i, false));
       li.appendChild(btn);
       return li;
     }),
@@ -257,7 +360,15 @@ chapterBack.addEventListener('click', () => setScreen('library'));
 
 // ---- reader controls ------------------------------------------------------
 
-stage.addEventListener('click', () => engine.toggle());
+stage.addEventListener('click', () => {
+  // While the transition card is up, a tap means "start the next chapter now"
+  // (unless it's the terminal end-of-book card, which has no Continue button).
+  if (transition.classList.contains('active')) {
+    if (continueBtn.style.display !== 'none') continueNow();
+    return;
+  }
+  engine.toggle();
+});
 playpause.addEventListener('click', (e) => {
   e.stopPropagation();
   engine.toggle();
@@ -281,6 +392,13 @@ function setWpm(value: number): void {
 // Keyboard niceties for desktop use of the PWA.
 document.addEventListener('keydown', (e) => {
   if (!readerScreen.classList.contains('active')) return;
+  if (transition.classList.contains('active')) {
+    if (e.key === ' ' && continueBtn.style.display !== 'none') {
+      e.preventDefault();
+      continueNow();
+    }
+    return;
+  }
   if (e.key === ' ') { e.preventDefault(); engine.toggle(); }
   else if (e.key === 'ArrowLeft') engine.step(-1);
   else if (e.key === 'ArrowRight') engine.step(1);
@@ -335,4 +453,5 @@ function formatTime(secs: number): string {
 
 applyTheme(settings.theme);
 readBtn.disabled = input.value.trim().length === 0;
+updateNowReading();
 syncControls(engine.getState());
