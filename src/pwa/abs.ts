@@ -25,6 +25,8 @@ export interface AbsBook {
   hasEbook: boolean;
   /** 0–1 reading progress, if any. */
   progress?: number;
+  /** epub CFI of last read position, for future position sync. */
+  ebookLocation?: string;
   isFinished?: boolean;
   /** epoch ms of last progress update (for ordering Continue Reading). */
   lastUpdate?: number;
@@ -80,9 +82,6 @@ export async function getBooks(cfg: AbsConfig): Promise<{ libraryName: string; b
     console.warn('[gread] /me failed:', e);
   }
   const mediaProgress: AnyJson[] = me?.mediaProgress ?? [];
-  console.debug('[gread] /me keys:', me ? Object.keys(me) : null);
-  console.debug('[gread] mediaProgress count:', mediaProgress.length, 'sample:', mediaProgress[0]);
-  console.debug('[gread] first item id:', results[0]?.id);
   const progress = new Map<string, AnyJson>();
   for (const p of mediaProgress) {
     if (p.libraryItemId) progress.set(p.libraryItemId, p);
@@ -97,7 +96,11 @@ export async function getBooks(cfg: AbsConfig): Promise<{ libraryName: string; b
       title: md.title ?? md.titleIgnorePrefix ?? 'Untitled',
       author: md.authorName ?? md.authorNameLF ?? '',
       hasEbook: Boolean(fmt),
-      progress: p?.progress,
+      // Reading position lives in ebookProgress; `progress` is the audio
+      // position (0 for a book you're only reading). Fall back only if the
+      // ebook field is absent entirely.
+      progress: p?.ebookProgress ?? p?.progress,
+      ebookLocation: p?.ebookLocation ?? undefined,
       isFinished: p?.isFinished,
       lastUpdate: p?.lastUpdate,
     };
