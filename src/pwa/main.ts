@@ -8,7 +8,17 @@
 import { RsvpEngine } from '../engine/rsvp.js';
 import type { ReaderState, Token } from '../engine/types.js';
 import { loadSettings, saveSettings, THEMES, type PwaSettings, type Theme } from './settings.js';
-import { fetchEbook, getBooks, isInProgress, loadAbsConfig, saveAbsConfig, type AbsBook } from './abs.js';
+import {
+  decodeLocation,
+  encodeLocation,
+  fetchEbook,
+  getBooks,
+  isInProgress,
+  loadAbsConfig,
+  saveAbsConfig,
+  saveProgress,
+  type AbsBook,
+} from './abs.js';
 import { parseEpub, type Chapter } from './epub.js';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -74,13 +84,31 @@ engine.on('tick', (s, t) => {
   scrub.value = String(s.index);
   positionEl.textContent = `${s.index + 1} / ${s.total}`;
   etaEl.textContent = `${formatTime(remainingSeconds(s))} left`;
+  if (s.playing) persist(); // throttled checkpoint while reading
 });
-engine.on('state', (s) => syncControls(s));
+
+let wasPlaying = false;
+engine.on('state', (s) => {
+  syncControls(s);
+  if (wasPlaying && !s.playing) persist({ force: true }); // pause / chapter end
+  wasPlaying = s.playing;
+});
+
 engine.on('end', () => {
   playpause.textContent = '▶';
   if (!session) return;
   if (session.index < session.chapters.length - 1) showChapterTransition();
-  else showEndOfBook();
+  else {
+    persist({ force: true, finished: true });
+    showEndOfBook();
+  }
+});
+
+// Flush on teardown — critical on mobile where the app gets backgrounded/closed
+// without a clean pause. keepalive lets the request outlive the page.
+window.addEventListener('pagehide', () => persist({ force: true, keepalive: true }));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') persist({ force: true, keepalive: true });
 });
 
 function renderWord(token: Token | null): void {
@@ -130,6 +158,7 @@ function setScreen(name: ScreenName): void {
 // has no session (session = null) — no header, no auto-advance.
 
 interface Session {
+  itemId: string;
   bookTitle: string;
   author: string;
   chapters: Chapter[];
@@ -162,6 +191,66 @@ function updateNowReading(): void {
   nowTitle.textContent = session.bookTitle;
   const ch = session.chapters[session.index];
   nowSub.textContent = [session.author, ch?.label].filter(Boolean).join(' · ');
+}
+
+// ---- server-side progress sync --------------------------------------------
+
+// Don't write on every word; cap to one save per interval while reading.
+const SAVE_THROTTLE_MS = 5000;
+let lastSaved = 0;
+
+/** Whole-book reading fraction (finished chapters + current word) / total. */
+function bookFraction(): number {
+  if (!session) return 0;
+  const { chapters, index } = session;
+  const before = chapters.slice(0, index).reduce((s, c) => s + c.wordCount, 0);
+  const total = chapters.reduce((s, c) => s + c.wordCount, 0) || 1;
+  return Math.min(1, (before + engine.getState().index) / total);
+}
+
+/**
+ * Persist the current spot to ABS. Throttled unless `force`. `keepalive` is for
+ * page/app teardown. Only saves real reading positions (reader on screen).
+ */
+function persist(opts: { force?: boolean; keepalive?: boolean; finished?: boolean } = {}): void {
+  if (!session || !absCfg.apiKey) return;
+  if (!readerScreen.classList.contains('active')) return;
+  const now = Date.now();
+  if (!opts.force && now - lastSaved < SAVE_THROTTLE_MS) return;
+  lastSaved = now;
+
+  const ebookLocation = encodeLocation(session.index, engine.getState().index);
+  const ebookProgress = opts.finished ? 1 : bookFraction();
+  saveProgress(
+    absCfg,
+    session.itemId,
+    { ebookLocation, ebookProgress, ...(opts.finished ? { isFinished: true } : {}) },
+    { keepalive: opts.keepalive },
+  ).catch((e) => console.warn('[gread] save progress failed:', e));
+}
+
+/** Resolve where to start a freshly opened book from its saved progress. */
+function resolveStart(book: AbsBook, chapters: Chapter[]): { chapterIndex: number; wordIndex: number } | null {
+  const exact = decodeLocation(book.ebookLocation);
+  if (exact) {
+    const chapterIndex = Math.min(Math.max(0, exact.chapterIndex), chapters.length - 1);
+    return { chapterIndex, wordIndex: Math.max(0, exact.wordIndex) };
+  }
+  const frac = book.progress ?? 0;
+  if (frac > 0 && frac < 1) return fractionToPosition(frac, chapters);
+  return null;
+}
+
+function fractionToPosition(frac: number, chapters: Chapter[]): { chapterIndex: number; wordIndex: number } {
+  const total = chapters.reduce((s, c) => s + c.wordCount, 0);
+  let target = Math.floor(frac * total);
+  for (let i = 0; i < chapters.length; i++) {
+    if (target < chapters[i].wordCount || i === chapters.length - 1) {
+      return { chapterIndex: i, wordIndex: Math.max(0, Math.min(target, chapters[i].wordCount - 1)) };
+    }
+    target -= chapters[i].wordCount;
+  }
+  return { chapterIndex: 0, wordIndex: 0 };
 }
 
 /** Open a chapter by index in the reader, optionally starting playback. */
@@ -270,7 +359,14 @@ async function openBook(book: AbsBook): Promise<void> {
       return;
     }
     setStatus(libraryStatus, '', false);
-    showChapters(parsed.title || book.title, book.author, parsed.chapters);
+    const chapters = parsed.chapters;
+    showChapters(book.id, parsed.title || book.title, book.author, chapters);
+    // Jump straight to the saved spot (paused) if there is one.
+    const start = resolveStart(book, chapters);
+    if (start) {
+      playChapter(start.chapterIndex, false);
+      engine.seek(start.wordIndex);
+    }
   } catch (e) {
     setStatus(libraryStatus, (e as Error).message, true);
   }
@@ -335,8 +431,8 @@ function setStatus(el: HTMLElement, msg: string, isError: boolean): void {
 
 // ---- chapter picker -------------------------------------------------------
 
-function showChapters(title: string, author: string, chapters: Chapter[]): void {
-  session = { bookTitle: title, author, chapters, index: 0 };
+function showChapters(itemId: string, title: string, author: string, chapters: Chapter[]): void {
+  session = { itemId, bookTitle: title, author, chapters, index: 0 };
   bookTitle.textContent = title;
   chapterList.replaceChildren(
     ...chapters.map((ch, i) => {

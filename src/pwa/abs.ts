@@ -120,6 +120,55 @@ export async function fetchEbook(cfg: AbsConfig, itemId: string): Promise<ArrayB
   return res.arrayBuffer();
 }
 
+// ---- reading position (server-side, cross-device) -------------------------
+//
+// We store our position in ABS's own per-item progress so it syncs across
+// devices and shows up in the ABS apps. Two fields, two jobs:
+//   ebookProgress  — whole-book 0–1 fraction (universal; drives the % badge)
+//   ebookLocation  — our exact bookmark, namespaced "gread:<chapter>:<word>"
+// On restore we decode ebookLocation for an exact spot, or fall back to the
+// fraction when it's something we didn't write (e.g. a CFI from ABS's reader).
+
+const LOCATION_PREFIX = 'gread:';
+
+export function encodeLocation(chapterIndex: number, wordIndex: number): string {
+  return `${LOCATION_PREFIX}${chapterIndex}:${wordIndex}`;
+}
+
+export function decodeLocation(loc?: string): { chapterIndex: number; wordIndex: number } | null {
+  if (!loc || !loc.startsWith(LOCATION_PREFIX)) return null;
+  const [c, w] = loc.slice(LOCATION_PREFIX.length).split(':');
+  const chapterIndex = Number(c);
+  const wordIndex = Number(w);
+  if (!Number.isFinite(chapterIndex) || !Number.isFinite(wordIndex)) return null;
+  return { chapterIndex, wordIndex };
+}
+
+export interface ProgressUpdate {
+  ebookProgress?: number;
+  ebookLocation?: string;
+  isFinished?: boolean;
+}
+
+/**
+ * Write reading progress for an item. PATCH merges, so we send only ebook
+ * fields and never disturb the audiobook position. `keepalive` lets the request
+ * survive page/app teardown (pagehide), where a normal fetch would be killed.
+ */
+export async function saveProgress(
+  cfg: AbsConfig,
+  itemId: string,
+  body: ProgressUpdate,
+  opts: { keepalive?: boolean } = {},
+): Promise<void> {
+  await request(cfg, api(`/me/progress/${itemId}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    keepalive: opts.keepalive,
+  });
+}
+
 // ---- internals ------------------------------------------------------------
 
 type AnyJson = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -143,11 +192,14 @@ async function getJson(cfg: AbsConfig, path: string): Promise<AnyJson> {
   return res.json();
 }
 
-async function request(cfg: AbsConfig, url: string): Promise<Response> {
+async function request(cfg: AbsConfig, url: string, init: RequestInit = {}): Promise<Response> {
   if (!cfg.apiKey) throw new Error('Enter your Audiobookshelf API key first.');
   let res: Response;
   try {
-    res = await fetch(url, { headers: { Authorization: `Bearer ${cfg.apiKey}` } });
+    res = await fetch(url, {
+      ...init,
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, ...init.headers },
+    });
   } catch (e) {
     throw new Error(`Could not reach Audiobookshelf (${(e as Error).message}).`);
   }
