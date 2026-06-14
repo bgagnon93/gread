@@ -51,11 +51,13 @@ const stepBack = $<HTMLButtonElement>('step-back');
 const stepFwd = $<HTMLButtonElement>('step-fwd');
 const wpm = $<HTMLInputElement>('wpm');
 const wpmVal = $('wpm-val');
-const chunk = $<HTMLInputElement>('chunk');
-const chunkVal = $('chunk-val');
+const wpmDown = $<HTMLButtonElement>('wpm-down');
+const wpmUp = $<HTMLButtonElement>('wpm-up');
+const WPM_STEP = 25;
 
 const settings: PwaSettings = loadSettings();
-const engine = new RsvpEngine({ wpm: settings.wpm, chunkSize: settings.chunkSize });
+// Chunk size is fixed at 1 (one word per flash); the option was removed.
+const engine = new RsvpEngine({ wpm: settings.wpm, chunkSize: 1 });
 
 // ---- engine subscriptions -------------------------------------------------
 
@@ -89,8 +91,6 @@ function syncControls(s: ReaderState): void {
   etaEl.textContent = `${formatTime(remainingSeconds(s))} left`;
   wpm.value = String(s.wpm);
   wpmVal.textContent = String(s.wpm);
-  chunk.value = String(s.chunkSize);
-  chunkVal.textContent = String(s.chunkSize);
 }
 
 // ---- screen switching -----------------------------------------------------
@@ -267,16 +267,16 @@ stepBack.addEventListener('click', (e) => stopAnd(e, () => engine.step(-1)));
 stepFwd.addEventListener('click', (e) => stopAnd(e, () => engine.step(1)));
 scrub.addEventListener('input', () => engine.seek(Number(scrub.value)));
 
-wpm.addEventListener('input', () => {
-  engine.setWpm(Number(wpm.value));
-  settings.wpm = Number(wpm.value);
+wpm.addEventListener('input', () => setWpm(Number(wpm.value)));
+wpmDown.addEventListener('click', () => setWpm(Number(wpm.value) - WPM_STEP));
+wpmUp.addEventListener('click', () => setWpm(Number(wpm.value) + WPM_STEP));
+
+function setWpm(value: number): void {
+  const clamped = Math.min(Number(wpm.max), Math.max(Number(wpm.min), value));
+  engine.setWpm(clamped);
+  settings.wpm = clamped;
   saveSettings(settings);
-});
-chunk.addEventListener('input', () => {
-  engine.setChunkSize(Number(chunk.value));
-  settings.chunkSize = Number(chunk.value);
-  saveSettings(settings);
-});
+}
 
 // Keyboard niceties for desktop use of the PWA.
 document.addEventListener('keydown', (e) => {

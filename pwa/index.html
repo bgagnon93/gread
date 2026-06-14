@@ -135,10 +135,17 @@
         padding: 0.7rem 0; font-size: 1.2rem; cursor: pointer;
       }
       .transport button.play { max-width: 7rem; }
-      .fields { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: center; justify-content: center; padding: 0 0.75rem; }
-      .field { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); }
-      .field input[type="range"] { accent-color: var(--accent); }
-      .field .val { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 2.5rem; }
+      .fields { display: flex; align-items: center; justify-content: center; padding: 0 0.75rem; }
+      .wpm-control { display: flex; align-items: center; gap: 0.6rem; width: 100%; }
+      .wpm-control .lbl { color: var(--muted); font-size: 0.82rem; }
+      .wpm-control input[type="range"] { flex: 1; accent-color: var(--accent); height: 1.75rem; }
+      .wpm-control .val { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 3.25rem; text-align: right; font-size: 0.9rem; }
+      .stepbtn {
+        background: var(--panel); color: var(--fg); border: 1px solid var(--panel-edge);
+        border-radius: 10px; width: 2.4rem; height: 2.4rem; font-size: 1.4rem;
+        line-height: 1; cursor: pointer; flex: none;
+      }
+      .stepbtn:active { background: var(--panel-edge); }
       select {
         background: var(--panel); color: var(--fg); border: 1px solid var(--panel-edge);
         border-radius: 10px; padding: 0.4rem 0.5rem; font-size: 0.82rem;
@@ -204,8 +211,13 @@
           <button id="step-fwd" title="Forward">▶</button>
         </div>
         <div class="fields">
-          <label class="field">WPM <input type="range" id="wpm" min="100" max="1000" step="25" /> <span class="val" id="wpm-val"></span></label>
-          <label class="field">Chunk <input type="range" id="chunk" min="1" max="3" step="1" /> <span class="val" id="chunk-val"></span></label>
+          <div class="wpm-control">
+            <span class="lbl">WPM</span>
+            <button id="wpm-down" class="stepbtn" aria-label="Decrease WPM">−</button>
+            <input type="range" id="wpm" min="100" max="1000" step="25" />
+            <button id="wpm-up" class="stepbtn" aria-label="Increase WPM">+</button>
+            <span class="val" id="wpm-val"></span>
+          </div>
         </div>
       </div>
     </section>
