@@ -354,8 +354,16 @@ async function connectAbs(): Promise<void> {
 async function openBook(book: AbsBook): Promise<void> {
   setStatus(libraryStatus, `Opening “${book.title}”…`, false);
   try {
+    console.log('[gread] build=fast-extract openBook', book.title);
+    const tFetch = performance.now();
     const bytes = await fetchEbook(absCfg, book.id);
+    const tParse = performance.now();
     const parsed = await parseEpub(bytes);
+    const tDone = performance.now();
+    console.log(
+      `[gread] download ${Math.round(tParse - tFetch)}ms (${(bytes.byteLength / 1e6).toFixed(1)}MB), ` +
+        `parse ${Math.round(tDone - tParse)}ms`,
+    );
     if (parsed.chapters.length === 0) {
       setStatus(libraryStatus, 'No readable text found in this ebook.', true);
       return;
