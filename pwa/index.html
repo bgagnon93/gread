@@ -82,7 +82,8 @@
 
       /* ---- chapter picker ---- */
       #chapter-screen { padding: 1rem; gap: 0.75rem; }
-      .book-title { font-size: 1.15rem; margin: 0.25rem 0.25rem 0.5rem; }
+      .book-title { font-size: 1.15rem; margin: 0.25rem 0.25rem 0.2rem; }
+      .book-stats { color: var(--muted); font-size: 0.8rem; margin: 0 0.25rem 0.6rem; }
       .chapter-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
       .chapter-list button {
         width: 100%; text-align: left; background: var(--panel); color: var(--fg);
@@ -205,6 +206,7 @@
         <button id="chapter-back" class="iconbtn">‹ Back</button>
       </div>
       <h2 id="book-title" class="book-title"></h2>
+      <div id="book-stats" class="book-stats"></div>
       <ul id="chapter-list" class="chapter-list"></ul>
     </section>
 

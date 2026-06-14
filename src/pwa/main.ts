@@ -45,6 +45,7 @@ const bookList = $<HTMLUListElement>('book-list');
 // Chapter screen
 const chapterBack = $<HTMLButtonElement>('chapter-back');
 const bookTitle = $('book-title');
+const bookStats = $('book-stats');
 const chapterList = $<HTMLUListElement>('chapter-list');
 
 // Reader screen
@@ -435,6 +436,7 @@ function setStatus(el: HTMLElement, msg: string, isError: boolean): void {
 function showChapters(itemId: string, title: string, author: string, chapters: Chapter[]): void {
   session = { itemId, bookTitle: title, author, chapters, index: 0 };
   bookTitle.textContent = title;
+  updateBookStats();
   chapterList.replaceChildren(
     ...chapters.map((ch, i) => {
       const li = document.createElement('li');
@@ -451,6 +453,15 @@ function showChapters(itemId: string, title: string, author: string, chapters: C
     }),
   );
   setScreen('chapters');
+}
+
+/** Total words + estimated read time for the whole book at the current WPM. */
+function updateBookStats(): void {
+  if (!session) return;
+  const totalWords = session.chapters.reduce((s, c) => s + c.wordCount, 0);
+  const wpm = engine.getState().wpm;
+  const secs = (totalWords / wpm) * 60;
+  bookStats.textContent = `${totalWords.toLocaleString()} words · ~${formatDuration(secs)} at ${wpm} wpm`;
 }
 
 chapterBack.addEventListener('click', () => setScreen('library'));
@@ -502,6 +513,7 @@ function setWpm(value: number): void {
   engine.setWpm(clamped);
   settings.wpm = clamped;
   saveSettings(settings);
+  updateBookStats(); // keep the chapter-screen estimate in sync with WPM
 }
 
 // Keyboard niceties for desktop use of the PWA.
@@ -562,6 +574,15 @@ function formatTime(secs: number): string {
   const m = Math.floor(total / 60);
   const sec = total % 60;
   return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+/** Coarse "5h 18m" / "47m" duration for whole-book estimates. */
+function formatDuration(secs: number): string {
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
 }
 
 // ---- init -----------------------------------------------------------------
