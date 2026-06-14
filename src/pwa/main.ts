@@ -67,6 +67,7 @@ const playpause = $<HTMLButtonElement>('playpause');
 const restart = $<HTMLButtonElement>('restart');
 const stepBack = $<HTMLButtonElement>('step-back');
 const stepFwd = $<HTMLButtonElement>('step-fwd');
+const skipEnd = $<HTMLButtonElement>('skip-end');
 const wpm = $<HTMLInputElement>('wpm');
 const wpmVal = $('wpm-val');
 const wpmDown = $<HTMLButtonElement>('wpm-down');
@@ -469,9 +470,27 @@ playpause.addEventListener('click', (e) => {
   e.stopPropagation();
   engine.toggle();
 });
-restart.addEventListener('click', (e) => stopAnd(e, () => engine.seek(0)));
+restart.addEventListener('click', (e) => stopAnd(e, skipToChapterStart));
 stepBack.addEventListener('click', (e) => stopAnd(e, () => engine.step(-1)));
 stepFwd.addEventListener('click', (e) => stopAnd(e, () => engine.step(1)));
+skipEnd.addEventListener('click', (e) => stopAnd(e, skipToChapterEnd));
+
+// At the chapter's start, ⏮ jumps to the previous chapter; at the end, ⏭ jumps
+// to the next. Chapter jumps preserve play state and land at the chapter start.
+function skipToChapterStart(): void {
+  if (engine.getState().index > 0) engine.seek(0);
+  else if (session && session.index > 0) gotoChapter(session.index - 1);
+}
+
+function skipToChapterEnd(): void {
+  const s = engine.getState();
+  if (s.index < s.total - 1) engine.seek(s.total - 1);
+  else if (session && session.index < session.chapters.length - 1) gotoChapter(session.index + 1);
+}
+
+function gotoChapter(index: number): void {
+  playChapter(index, engine.getState().playing);
+}
 scrub.addEventListener('input', () => engine.seek(Number(scrub.value)));
 
 wpm.addEventListener('input', () => setWpm(Number(wpm.value)));
