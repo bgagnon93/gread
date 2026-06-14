@@ -73,9 +73,18 @@ export async function getBooks(cfg: AbsConfig): Promise<{ libraryName: string; b
   const results: AnyJson[] = itemsRes.results ?? itemsRes.libraryItems ?? [];
 
   // Reading progress, keyed by item id.
-  const me = await getJson(cfg, '/me').catch(() => null);
+  let me: AnyJson = null;
+  try {
+    me = await getJson(cfg, '/me');
+  } catch (e) {
+    console.warn('[gread] /me failed:', e);
+  }
+  const mediaProgress: AnyJson[] = me?.mediaProgress ?? [];
+  console.debug('[gread] /me keys:', me ? Object.keys(me) : null);
+  console.debug('[gread] mediaProgress count:', mediaProgress.length, 'sample:', mediaProgress[0]);
+  console.debug('[gread] first item id:', results[0]?.id);
   const progress = new Map<string, AnyJson>();
-  for (const p of me?.mediaProgress ?? []) {
+  for (const p of mediaProgress) {
     if (p.libraryItemId) progress.set(p.libraryItemId, p);
   }
 
