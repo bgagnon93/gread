@@ -29,10 +29,8 @@ export interface ParsedBook {
 type AnyBook = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export async function parseEpub(data: ArrayBuffer): Promise<ParsedBook> {
-  const t0 = performance.now();
   const book: AnyBook = (ePub as unknown as (input: ArrayBuffer) => AnyBook)(data);
   await book.ready;
-  const tReady = performance.now();
 
   const title: string = book.packaging?.metadata?.title || 'Untitled';
 
@@ -52,7 +50,6 @@ export async function parseEpub(data: ArrayBuffer): Promise<ParsedBook> {
 
   // Unzip all sections concurrently, then extract text in spine order.
   const raws = await Promise.all(spineItems.map((item) => rawSection(book, item)));
-  const tUnzip = performance.now();
 
   const chapters: Chapter[] = [];
   for (let i = 0; i < spineItems.length; i++) {
@@ -62,13 +59,6 @@ export async function parseEpub(data: ArrayBuffer): Promise<ParsedBook> {
     const label = labels.get(href) || `Section ${chapters.length + 1}`;
     chapters.push({ label, text, wordCount: countWords(text) });
   }
-
-  const tStrip = performance.now();
-  console.log(
-    `[gread] parse: ready ${Math.round(tReady - t0)}ms, ` +
-      `unzip ${Math.round(tUnzip - tReady)}ms, strip ${Math.round(tStrip - tUnzip)}ms, ` +
-      `${spineItems.length} sections, ${chapters.length} chapters`,
-  );
 
   try {
     book.destroy?.();

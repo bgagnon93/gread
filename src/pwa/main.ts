@@ -20,6 +20,7 @@ import {
   type AbsBook,
 } from './abs.js';
 import { parseEpub, type Chapter } from './epub.js';
+import { getCachedBook, putCachedBook } from './cache.js';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -354,23 +355,30 @@ async function connectAbs(): Promise<void> {
 async function openBook(book: AbsBook): Promise<void> {
   setStatus(libraryStatus, `Opening “${book.title}”…`, false);
   try {
-    console.log('[gread] build=fast-extract openBook', book.title);
-    const tFetch = performance.now();
-    const bytes = await fetchEbook(absCfg, book.id);
-    const tParse = performance.now();
-    const parsed = await parseEpub(bytes);
-    const tDone = performance.now();
-    console.log(
-      `[gread] download ${Math.round(tParse - tFetch)}ms (${(bytes.byteLength / 1e6).toFixed(1)}MB), ` +
-        `parse ${Math.round(tDone - tParse)}ms`,
-    );
-    if (parsed.chapters.length === 0) {
+    // Cached text (this device)? Open instantly, no download.
+    let cached = await getCachedBook(book.id);
+    if (!cached) {
+      const bytes = await fetchEbook(absCfg, book.id, (loaded, total) => {
+        setStatus(
+          libraryStatus,
+          total
+            ? `Downloading ${Math.round((loaded / total) * 100)}%… (one-time)`
+            : `Downloading ${(loaded / 1e6).toFixed(0)} MB… (one-time)`,
+          false,
+        );
+      });
+      setStatus(libraryStatus, 'Processing…', false);
+      const parsed = await parseEpub(bytes);
+      cached = { itemId: book.id, title: parsed.title, chapters: parsed.chapters, cachedAt: Date.now() };
+      void putCachedBook(cached);
+    }
+    if (cached.chapters.length === 0) {
       setStatus(libraryStatus, 'No readable text found in this ebook.', true);
       return;
     }
     setStatus(libraryStatus, '', false);
-    const chapters = parsed.chapters;
-    showChapters(book.id, parsed.title || book.title, book.author, chapters);
+    const chapters = cached.chapters;
+    showChapters(book.id, cached.title || book.title, book.author, chapters);
     // Jump straight to the saved spot (paused) if there is one.
     const start = resolveStart(book, chapters);
     if (start) {

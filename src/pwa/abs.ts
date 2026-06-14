@@ -114,10 +114,37 @@ export async function getBooks(cfg: AbsConfig): Promise<{ libraryName: string; b
   return { libraryName: lib.name ?? 'Library', books };
 }
 
-/** Fetch an item's ebook file as raw bytes for epub.js to parse. */
-export async function fetchEbook(cfg: AbsConfig, itemId: string): Promise<ArrayBuffer> {
+/**
+ * Fetch an item's ebook file as raw bytes for epub.js to parse. If `onProgress`
+ * is given and the response is streamable, reports bytes loaded so the UI can
+ * show a percentage — these files can be very large (image-heavy epubs).
+ */
+export async function fetchEbook(
+  cfg: AbsConfig,
+  itemId: string,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<ArrayBuffer> {
   const res = await request(cfg, api(`/items/${itemId}/ebook`));
-  return res.arrayBuffer();
+  const total = Number(res.headers.get('Content-Length')) || 0;
+  if (!onProgress || !res.body) return res.arrayBuffer();
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress(loaded, total);
+  }
+  const out = new Uint8Array(loaded);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out.buffer;
 }
 
 // ---- reading position (server-side, cross-device) -------------------------
