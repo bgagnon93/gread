@@ -511,14 +511,44 @@ chapterBack.addEventListener('click', () => setScreen('library'));
 
 // ---- reader controls ------------------------------------------------------
 
-stage.addEventListener('click', () => {
+// Stage taps: single tap toggles play/pause; double tap on the left/right third
+// adjusts WPM (left −, right +), center double tap does nothing. The toggle is
+// briefly deferred so a double tap doesn't also flip play state — this means a
+// double tap to change speed never interrupts reading.
+const DOUBLE_TAP_MS = 250;
+let lastTapAt = 0;
+let singleTapTimer: number | undefined;
+
+stage.addEventListener('click', (e) => {
   // While the transition card is up, a tap means "start the next chapter now"
   // (unless it's the terminal end-of-book card, which has no Continue button).
   if (transition.classList.contains('active')) {
     if (continueBtn.style.display !== 'none') continueNow();
     return;
   }
-  engine.toggle();
+
+  const now = Date.now();
+  if (now - lastTapAt < DOUBLE_TAP_MS) {
+    // Second tap → double tap: cancel the pending toggle and adjust WPM by side.
+    lastTapAt = 0;
+    if (singleTapTimer !== undefined) {
+      clearTimeout(singleTapTimer);
+      singleTapTimer = undefined;
+    }
+    const zone = e.clientX / window.innerWidth;
+    if (zone < 0.34) setWpm(engine.getState().wpm - WPM_STEP);
+    else if (zone > 0.66) setWpm(engine.getState().wpm + WPM_STEP);
+    // center: no effect
+    return;
+  }
+
+  // First tap → defer the toggle long enough to see if a second tap follows.
+  lastTapAt = now;
+  if (singleTapTimer !== undefined) clearTimeout(singleTapTimer);
+  singleTapTimer = window.setTimeout(() => {
+    singleTapTimer = undefined;
+    engine.toggle();
+  }, DOUBLE_TAP_MS);
 });
 playpause.addEventListener('click', (e) => {
   e.stopPropagation();
