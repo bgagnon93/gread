@@ -74,6 +74,11 @@ const skipEnd = $<HTMLButtonElement>('skip-end');
 const wpmVal = $('wpm-val');
 const wpmDown = $<HTMLButtonElement>('wpm-down');
 const wpmUp = $<HTMLButtonElement>('wpm-up');
+const wpmValue = $<HTMLButtonElement>('wpm-value');
+const wpmSheet = $('wpm-sheet');
+const wpmBackdrop = $('wpm-backdrop');
+const wpmSlider = $<HTMLInputElement>('wpm-slider');
+const wpmSheetVal = $('wpm-sheet-val');
 const WPM_STEP = 25;
 const WPM_MIN = 100;
 const WPM_MAX = 1000;
@@ -137,7 +142,7 @@ function syncControls(s: ReaderState): void {
   scrub.value = String(s.index);
   positionEl.textContent = `${s.total === 0 ? 0 : s.index + 1} / ${s.total}`;
   etaEl.textContent = `${formatTime(remainingSeconds(s))} left`;
-  wpmVal.textContent = String(s.wpm);
+  renderWpm(s.wpm);
 }
 
 // ---- screen switching -----------------------------------------------------
@@ -323,6 +328,7 @@ readBtn.addEventListener('click', () => showText(input.value));
 backBtn.addEventListener('click', () => {
   engine.pause();
   hideTransition();
+  closeWpmSheet();
   setScreen(readerReturn);
 });
 
@@ -576,12 +582,34 @@ scrub.addEventListener('input', () => engine.seek(Number(scrub.value)));
 holdRepeat(wpmDown, () => setWpm(engine.getState().wpm - WPM_STEP));
 holdRepeat(wpmUp, () => setWpm(engine.getState().wpm + WPM_STEP));
 
+// Tapping the WPM number raises a slider popover (closed by tapping the backdrop).
+wpmValue.addEventListener('click', (e) => {
+  e.stopPropagation();
+  wpmSheet.classList.add('open');
+  wpmBackdrop.classList.add('open');
+});
+wpmBackdrop.addEventListener('click', closeWpmSheet);
+wpmSlider.addEventListener('input', () => setWpm(Number(wpmSlider.value)));
+
+function closeWpmSheet(): void {
+  wpmSheet.classList.remove('open');
+  wpmBackdrop.classList.remove('open');
+}
+
 function setWpm(value: number): void {
   const clamped = Math.min(WPM_MAX, Math.max(WPM_MIN, value));
-  engine.setWpm(clamped);
+  engine.setWpm(clamped); // emits 'state' → syncControls → renderWpm
   settings.wpm = clamped;
   saveSettings(settings);
   updateBookStats(); // keep the chapter-screen estimate in sync with WPM
+}
+
+/** Reflect the current WPM in the number, the popover value, and the slider. */
+function renderWpm(v: number): void {
+  const s = String(v);
+  wpmVal.textContent = s;
+  wpmSheetVal.textContent = s;
+  if (wpmSlider.value !== s) wpmSlider.value = s;
 }
 
 // Keyboard niceties for desktop use of the PWA.

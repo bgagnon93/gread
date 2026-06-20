@@ -105,6 +105,9 @@
       /* ---- reader screen ---- */
       #reader-screen { padding: 1rem 1rem 1.5rem; position: relative; }
       .topbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+      /* The reader header overlays the top so the stage fills the whole screen
+         and the word centers on the true viewport center, header included. */
+      #reader-screen .topbar { position: absolute; top: 1rem; left: 1rem; right: 1rem; z-index: 2; }
       .iconbtn {
         background: var(--panel); color: var(--fg); border: 1px solid var(--panel-edge);
         border-radius: 10px; padding: 0.5rem 0.8rem; font-size: 0.95rem; cursor: pointer; flex: none;
@@ -174,9 +177,33 @@
         padding: 0.7rem 0; font-size: 1.2rem; cursor: pointer;
       }
       .transport button.play { max-width: 7rem; }
-      .wpm-row { display: flex; align-items: center; justify-content: center; gap: 0.6rem; }
-      .wpm-row .lbl { color: var(--muted); font-size: 0.82rem; }
-      .wpm-row .val { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 3ch; text-align: center; font-size: 1rem; }
+      .wpm-row { display: flex; align-items: center; justify-content: center; gap: 0.9rem; }
+      .wpm-value {
+        display: flex; flex-direction: column; align-items: center; line-height: 1.05;
+        background: none; border: none; color: var(--fg); cursor: pointer; padding: 0.1rem 0.5rem;
+      }
+      .wpm-value .num { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+      .wpm-value .unit { font-size: 0.62rem; color: var(--muted); letter-spacing: 0.06em; }
+
+      /* WPM slider popover (bottom sheet) */
+      .sheet-backdrop {
+        position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 10;
+        opacity: 0; visibility: hidden; transition: opacity 0.2s ease, visibility 0.2s ease;
+      }
+      .sheet-backdrop.open { opacity: 1; visibility: visible; }
+      .sheet {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 11;
+        display: flex; flex-direction: column; align-items: center; gap: 0.9rem;
+        background: var(--panel); border-top: 1px solid var(--panel-edge);
+        border-radius: 18px 18px 0 0;
+        padding: 0.75rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+        transform: translateY(110%); transition: transform 0.25s ease;
+      }
+      .sheet.open { transform: translateY(0); }
+      .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--panel-edge); }
+      .sheet-value { font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .sheet-value .unit { font-size: 0.85rem; color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
+      .sheet input[type="range"] { width: min(520px, 100%); accent-color: var(--accent); height: 1.75rem; }
       .stepbtn {
         background: var(--panel); color: var(--fg); border: 1px solid var(--panel-edge);
         border-radius: 10px; width: 2.4rem; height: 2.4rem; font-size: 1.4rem;
@@ -265,12 +292,22 @@
             <button id="skip-end" title="Chapter end (again to skip a chapter)">⏭</button>
           </div>
           <div class="wpm-row">
-            <span class="lbl">WPM</span>
             <button id="wpm-down" class="stepbtn" aria-label="Decrease WPM">−</button>
-            <span class="val" id="wpm-val"></span>
+            <button id="wpm-value" class="wpm-value" aria-label="Set words per minute">
+              <span class="num" id="wpm-val">350</span>
+              <span class="unit">WPM</span>
+            </button>
             <button id="wpm-up" class="stepbtn" aria-label="Increase WPM">+</button>
           </div>
         </div>
+      </div>
+
+      <!-- WPM slider popover -->
+      <div class="sheet-backdrop" id="wpm-backdrop"></div>
+      <div class="sheet" id="wpm-sheet" role="dialog" aria-label="Reading speed">
+        <div class="sheet-handle"></div>
+        <div class="sheet-value"><span id="wpm-sheet-val">350</span><span class="unit">WPM</span></div>
+        <input type="range" id="wpm-slider" min="100" max="1000" step="25" />
       </div>
     </section>
 
