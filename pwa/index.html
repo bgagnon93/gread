@@ -12,7 +12,9 @@
     <link rel="apple-touch-icon" href="icon.svg" />
     <style>
       :root { color-scheme: dark light; }
-      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      /* touch-action: manipulation disables double-tap-to-zoom (so rapid taps
+         on the step buttons don't zoom the page) while keeping pinch + scroll. */
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
       html, body { height: 100%; margin: 0; }
       body {
         /* Size to the *dynamic* viewport so mobile browser chrome doesn't push
@@ -81,7 +83,9 @@
       .status.error { color: var(--pivot); }
 
       /* ---- chapter picker ---- */
+      #library-screen { padding: 1rem; gap: 0.5rem; }
       #chapter-screen { padding: 1rem; gap: 0.75rem; }
+      .search { margin: 0; }
       .book-title { font-size: 1.15rem; margin: 0.25rem 0.25rem 0.2rem; }
       .book-stats { color: var(--muted); font-size: 0.8rem; margin: 0 0.25rem 0.6rem; }
       .chapter-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
@@ -99,7 +103,7 @@
       .section-label { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; margin: 0.75rem 0.25rem 0.35rem; list-style: none; }
 
       /* ---- reader screen ---- */
-      #reader-screen { padding: 1rem 1rem 1.5rem; }
+      #reader-screen { padding: 1rem 1rem 1.5rem; position: relative; }
       .topbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
       .iconbtn {
         background: var(--panel); color: var(--fg); border: 1px solid var(--panel-edge);
@@ -116,6 +120,7 @@
         flex: 1; display: flex; flex-direction: column; align-items: center;
         justify-content: center; gap: 2rem; cursor: pointer;
         overflow: hidden; min-height: 0; width: 100%;
+        user-select: none; -webkit-user-select: none;
       }
       .transition {
         position: absolute; inset: 0; display: none; flex-direction: column;
@@ -144,9 +149,24 @@
       .word::before { top: -1.1rem; }
       .word::after { bottom: -1.1rem; }
 
-      .panel { display: flex; flex-direction: column; gap: 0.9rem; width: min(620px, 92vw); margin: 0 auto; }
-      .scrub { width: 100%; accent-color: var(--accent); height: 1.75rem; }
+      /* Controls float at the bottom (out of flow) so the word stays centered
+         on the full screen. The button cluster fades out while playing. */
+      .panel {
+        position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+        width: min(620px, calc(100% - 2rem));
+        display: flex; flex-direction: column; gap: 0.45rem;
+        user-select: none; -webkit-user-select: none;
+      }
       .meta { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .scrub { width: 100%; accent-color: var(--accent); height: 1.75rem; margin: 0; }
+
+      .controls {
+        display: flex; flex-direction: column; gap: 0.6rem; overflow: hidden;
+        transition: opacity 0.25s ease, max-height 0.25s ease, margin-top 0.25s ease;
+        max-height: 160px;
+      }
+      body.playing .controls { opacity: 0; max-height: 0; margin-top: -0.45rem; pointer-events: none; }
+
       .transport { display: flex; gap: 0.5rem; justify-content: center; }
       .transport button {
         flex: 1; max-width: 5rem; background: var(--panel); color: var(--fg);
@@ -154,11 +174,9 @@
         padding: 0.7rem 0; font-size: 1.2rem; cursor: pointer;
       }
       .transport button.play { max-width: 7rem; }
-      .fields { display: flex; align-items: center; justify-content: center; padding: 0 0.75rem; }
-      .wpm-control { display: flex; align-items: center; gap: 0.6rem; width: 100%; }
-      .wpm-control .lbl { color: var(--muted); font-size: 0.82rem; }
-      .wpm-control input[type="range"] { flex: 1; accent-color: var(--accent); height: 1.75rem; }
-      .wpm-control .val { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 3.25rem; text-align: right; font-size: 0.9rem; }
+      .wpm-row { display: flex; align-items: center; justify-content: center; gap: 0.6rem; }
+      .wpm-row .lbl { color: var(--muted); font-size: 0.82rem; }
+      .wpm-row .val { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 3ch; text-align: center; font-size: 1rem; }
       .stepbtn {
         background: var(--panel); color: var(--fg); border: 1px solid var(--panel-edge);
         border-radius: 10px; width: 2.4rem; height: 2.4rem; font-size: 1.4rem;
@@ -196,6 +214,8 @@
         <button id="library-back" class="iconbtn">‹ Text</button>
         <span id="library-title" class="lib-title"></span>
       </div>
+      <input id="book-search" class="text search" type="search" autocomplete="off"
+             placeholder="Search title or author" />
       <div id="library-status" class="status"></div>
       <ul id="book-list" class="chapter-list"></ul>
     </section>
@@ -234,22 +254,21 @@
       </div>
 
       <div class="panel">
-        <input type="range" id="scrub" class="scrub" min="0" max="0" value="0" />
         <div class="meta"><span id="position">0 / 0</span><span id="eta">—</span></div>
-        <div class="transport">
-          <button id="restart" title="Chapter start (again to go back a chapter)">⏮</button>
-          <button id="step-back" title="Back">◀</button>
-          <button id="playpause" class="play">▶</button>
-          <button id="step-fwd" title="Forward">▶</button>
-          <button id="skip-end" title="Chapter end (again to skip a chapter)">⏭</button>
-        </div>
-        <div class="fields">
-          <div class="wpm-control">
+        <input type="range" id="scrub" class="scrub" min="0" max="0" value="0" />
+        <div class="controls" id="controls">
+          <div class="transport">
+            <button id="restart" title="Chapter start (again to go back a chapter)">⏮</button>
+            <button id="step-back" title="Back (hold to rewind)">◀</button>
+            <button id="playpause" class="play">▶</button>
+            <button id="step-fwd" title="Forward (hold to fast-forward)">▶</button>
+            <button id="skip-end" title="Chapter end (again to skip a chapter)">⏭</button>
+          </div>
+          <div class="wpm-row">
             <span class="lbl">WPM</span>
             <button id="wpm-down" class="stepbtn" aria-label="Decrease WPM">−</button>
-            <input type="range" id="wpm" min="100" max="1000" step="25" />
-            <button id="wpm-up" class="stepbtn" aria-label="Increase WPM">+</button>
             <span class="val" id="wpm-val"></span>
+            <button id="wpm-up" class="stepbtn" aria-label="Increase WPM">+</button>
           </div>
         </div>
       </div>

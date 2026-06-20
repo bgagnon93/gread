@@ -41,6 +41,7 @@ const absStatus = $('abs-status');
 const libraryBack = $<HTMLButtonElement>('library-back');
 const libraryTitle = $('library-title');
 const libraryStatus = $('library-status');
+const bookSearch = $<HTMLInputElement>('book-search');
 const bookList = $<HTMLUListElement>('book-list');
 
 // Chapter screen
@@ -70,11 +71,12 @@ const restart = $<HTMLButtonElement>('restart');
 const stepBack = $<HTMLButtonElement>('step-back');
 const stepFwd = $<HTMLButtonElement>('step-fwd');
 const skipEnd = $<HTMLButtonElement>('skip-end');
-const wpm = $<HTMLInputElement>('wpm');
 const wpmVal = $('wpm-val');
 const wpmDown = $<HTMLButtonElement>('wpm-down');
 const wpmUp = $<HTMLButtonElement>('wpm-up');
 const WPM_STEP = 25;
+const WPM_MIN = 100;
+const WPM_MAX = 1000;
 
 const settings: PwaSettings = loadSettings();
 // Chunk size is fixed at 1 (one word per flash); the option was removed.
@@ -93,6 +95,8 @@ engine.on('tick', (s, t) => {
 let wasPlaying = false;
 engine.on('state', (s) => {
   syncControls(s);
+  // Fade the transport/WPM controls out while playing (only useful when paused).
+  document.body.classList.toggle('playing', s.playing);
   if (wasPlaying && !s.playing) persist({ force: true }); // pause / chapter end
   wasPlaying = s.playing;
 });
@@ -133,7 +137,6 @@ function syncControls(s: ReaderState): void {
   scrub.value = String(s.index);
   positionEl.textContent = `${s.total === 0 ? 0 : s.index + 1} / ${s.total}`;
   etaEl.textContent = `${formatTime(remainingSeconds(s))} left`;
-  wpm.value = String(s.wpm);
   wpmVal.textContent = String(s.wpm);
 }
 
@@ -331,6 +334,21 @@ absKey.value = absCfg.apiKey;
 absConnect.addEventListener('click', () => void connectAbs());
 libraryBack.addEventListener('click', () => setScreen('input'));
 
+// Full library kept in memory so the search box can filter without refetching.
+let libBooks: AbsBook[] = [];
+let libName = '';
+
+bookSearch.addEventListener('input', () => {
+  const q = bookSearch.value.trim().toLowerCase();
+  const matches = q
+    ? libBooks.filter(
+        (b) => b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q),
+      )
+    : libBooks;
+  renderLibrary(libName, matches);
+  setStatus(libraryStatus, q && matches.length === 0 ? 'No matches.' : '', false);
+});
+
 async function connectAbs(): Promise<void> {
   absCfg.apiKey = absKey.value.trim();
   saveAbsConfig(absCfg);
@@ -342,6 +360,9 @@ async function connectAbs(): Promise<void> {
   absConnect.disabled = true;
   try {
     const { libraryName, books } = await getBooks(absCfg);
+    libBooks = books;
+    libName = libraryName;
+    bookSearch.value = '';
     renderLibrary(libraryName, books);
     setStatus(absStatus, '', false);
     setScreen('library');
@@ -498,9 +519,41 @@ playpause.addEventListener('click', (e) => {
   engine.toggle();
 });
 restart.addEventListener('click', (e) => stopAnd(e, skipToChapterStart));
-stepBack.addEventListener('click', (e) => stopAnd(e, () => engine.step(-1)));
-stepFwd.addEventListener('click', (e) => stopAnd(e, () => engine.step(1)));
 skipEnd.addEventListener('click', (e) => stopAnd(e, skipToChapterEnd));
+// Step buttons repeat (and accelerate) while held, so you can scrub words.
+holdRepeat(stepBack, () => engine.step(-1));
+holdRepeat(stepFwd, () => engine.step(1));
+
+/**
+ * Fire `fn` on press, then auto-repeat while held, accelerating the longer it's
+ * held. Used for the step and WPM buttons (hold to rewind / ramp speed).
+ */
+function holdRepeat(btn: HTMLButtonElement, fn: () => void): void {
+  let timer: number | undefined;
+  let interval = 220;
+  const repeat = (): void => {
+    fn();
+    interval = Math.max(40, interval - 25); // speed up as it's held
+    timer = window.setTimeout(repeat, interval);
+  };
+  const stop = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    stop();
+    interval = 220;
+    fn(); // immediate first action
+    timer = window.setTimeout(repeat, 400); // grace period before auto-repeat
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel'] as const) {
+    btn.addEventListener(ev, stop);
+  }
+}
 
 // At the chapter's start, ⏮ jumps to the previous chapter; at the end, ⏭ jumps
 // to the next. Chapter jumps preserve play state and land at the chapter start.
@@ -520,12 +573,11 @@ function gotoChapter(index: number): void {
 }
 scrub.addEventListener('input', () => engine.seek(Number(scrub.value)));
 
-wpm.addEventListener('input', () => setWpm(Number(wpm.value)));
-wpmDown.addEventListener('click', () => setWpm(Number(wpm.value) - WPM_STEP));
-wpmUp.addEventListener('click', () => setWpm(Number(wpm.value) + WPM_STEP));
+holdRepeat(wpmDown, () => setWpm(engine.getState().wpm - WPM_STEP));
+holdRepeat(wpmUp, () => setWpm(engine.getState().wpm + WPM_STEP));
 
 function setWpm(value: number): void {
-  const clamped = Math.min(Number(wpm.max), Math.max(Number(wpm.min), value));
+  const clamped = Math.min(WPM_MAX, Math.max(WPM_MIN, value));
   engine.setWpm(clamped);
   settings.wpm = clamped;
   saveSettings(settings);
